@@ -1,0 +1,264 @@
+specification {
+    color ext_gray #6c6477
+    color ext_primary #1060b0
+    color ext_secondary #23A2D9
+    color ext_new #70BF41
+
+    element person {
+        style {
+            color ext_primary
+            shape person
+        }
+    }
+
+    element ext_person {
+        style {
+            color ext_gray
+            shape person
+        }
+    }
+
+    element company {
+        style {
+            opacity 10%
+            border dashed
+        }
+    }
+    element container {
+        style {
+            color ext_secondary
+        }
+    }
+    element software_system {
+        style {
+            color ext_primary
+        }
+    }
+
+    tag task_1
+    tag task_2
+}
+
+model {
+    buyer = ext_person 'Покупатель протеза'
+    tester = ext_person 'Пилот протеза' 'С этого человека считываются данные'
+
+    operator = person 'Оператор производства'
+    ml_engineer = person 'ML-инжинер'
+
+    bionic = company 'BionicPRO' {
+        description 'Software System'
+
+        shop = container 'Интернет-магазин' {
+            icon @icons/bitrix.svg
+            description 'Bitrix 24'
+        }
+
+        crm = container 'CRM' {
+            icon @icons/bitrix.svg
+            description 'Bitrix 24'
+        }
+        crm_db = container 'CRM DB' {
+            icon tech:oracle
+            metadata {
+                engine 'Oracle 12'
+            }
+        }
+
+        api = container 'API' {
+            icon tech:spring
+            metadata {
+                language 'Kotlin'
+                framework 'SpringBoot'
+            }
+        }
+        db = container 'База данных' {
+            icon tech:postgresql
+            metadata {
+                engine 'PostgreSQL'
+            }
+        }
+
+        // External identity providers (per country / representation)
+        idp_ru = software_system 'Внешний IdP (RU)' {
+            #task_1
+
+            description 'Удостоверяющая служба в стране представительства (OIDC/OAuth2). Источник учётных записей.'
+        }
+
+        idp_eu = software_system 'Внешний IdP (EU)' {
+            #task_1
+
+            description 'Удостоверяющая служба в стране представительства (OIDC/OAuth2). Источник учётных записей.'
+        }
+
+        // Identity broker / federation layer (can be Keycloak-as-broker or dedicated service)
+        identity_broker = container 'Identity Broker' {
+            #task_1
+
+            description 'Федерация внешних IdP по странам/тенантам, нормализация claims/roles, единая точка интеграции для BionicPRO.'
+            icon bootstrap:key
+            metadata {
+                protocol 'OIDC/OAuth2'
+            }
+        }
+
+        // BFF / Auth gateway: server-side token handling, no IdP tokens to frontend
+        auth_bff = container 'Auth/BFF Gateway' {
+            #task_1
+
+            description 'Confidential client: выполняет code->token exchange и refresh на сервере, хранит refresh token, выдаёт фронтенду только защищённую cookie-сессию.'
+            icon tech:spring
+            metadata {
+                language 'Kotlin'
+                framework 'SpringBoot'
+                pattern 'BFF'
+            }
+        }
+
+        // Optional: session storage for BFF (opaque sessions)
+        session_store = container 'Session Store' {
+            #task_1
+
+            description 'Хранилище серверных сессий BFF (opaque session id), без хранения медицинских данных.'
+            icon tech:redis
+            metadata {
+                engine 'Redis'
+            }
+        }
+
+        // Оркестратор ETL
+        airflow = container 'Apache Airflow' {
+            #task_2
+
+            description 'Оркестрация ETL: загрузка данных из CRM DB (Oracle) и Telemetry DB (PostgreSQL), преобразования и формирование витрины отчётности.'
+            icon tech:airflow
+        }
+
+        // OLAP витрина для отчётов
+        olap = container 'OLAP DB (ClickHouse)' {
+            #task_2
+            icon @icons/clickhouse.svg
+
+            description 'Витрина отчётности (data mart) для быстрых пользовательских отчётов.'
+
+            metadata {
+                engine 'ClickHouse'
+                role 'OLAP'
+            }
+        }
+
+        // Staging/raw слой (опционально, но полезно при большом объёме и разных источниках)
+        etl_staging = container 'ETL Staging' {
+            #task_2
+
+            description 'Промежуточное хранилище для сырья/инкрементов ETL (временные таблицы/слой raw) перед витриной.'
+            icon tech:postgresql
+            metadata {
+                role 'Staging/Raw'
+            }
+        }
+
+        // Отдельный сервис отчётов
+        report_service = container 'Report Service' {
+            #task_2
+
+            description 'Отдельный сервис генерации отчётов: читает витрину в ClickHouse, применяет правила доступа (user->prosthesis), формирует отчёт.'
+            icon tech:spring
+            metadata {
+                purpose 'Reports API'
+            }
+        }
+    }
+
+    cli_tool = container 'cli tool' {
+        icon tech:spring
+        metadata {
+            language 'Kotlin'
+            framework 'SpringBoot'
+        }
+    }
+
+    app = container 'Программа в чипе протеза' {}
+    mobile_app = software_system 'Приложение для донастройки протеза' {
+            icon tech:ios
+    }
+
+    buyer -> bionic.shop 'Выбор протеза, заказ, оплата' 'REST'
+    tester -> app 'Предоставление миосигналов'
+    tester -> mobile_app ''
+    mobile_app -> app 'Управление протезом'
+
+    app ->  bionic.api 'Отправка технической телеметрии' 'REST'
+    mobile_app ->  bionic.api '' 'REST'
+    bionic.api ->  bionic.db '' 'TCP'
+
+    ml_engineer -> cli_tool '' ''
+    cli_tool ->  bionic.db '' 'TCP'
+
+    operator ->  bionic.crm '' ''
+    bionic.crm ->  bionic.crm_db '' 'TCP'
+    bionic.shop ->  bionic.crm '' ''
+
+    // Task 1
+    // Updated relationships (mobile app -> BFF; BFF -> API; BFF -> broker -> external IdPs)
+    tester -> auth_bff 'Аутентификация и работа с сессией (без токенов IdP на клиенте)' 'HTTPS'
+    mobile_app -> auth_bff 'API-вызовы через BFF (cookie-based session)' 'HTTPS'
+    auth_bff -> session_store 'Хранение/проверка серверной сессии' 'TCP'
+    auth_bff -> bionic.api 'Проксирование запросов к BionicPRO API от имени пользователя' 'REST/HTTPS'
+
+    auth_bff -> identity_broker 'OIDC Authorization Code Flow / Token Refresh (server-side)' 'OIDC/OAuth2'
+    identity_broker -> idp_ru 'Федерация аутентификации (RU realm/tenant)' 'OIDC/OAuth2'
+    identity_broker -> idp_eu 'Федерация аутентификации (EU realm/tenant)' 'OIDC/OAuth2'
+
+    // Task2
+    // Поток подготовки данных (ETL)
+    bionic.airflow -> bionic.db 'Extract telemetry (инкрементально)' 'TCP'
+    bionic.airflow -> bionic.crm_db 'Extract CRM data (инкрементально)' 'TCP'
+
+    bionic.airflow -> bionic.etl_staging 'Load raw/staging datasets' 'TCP'
+    bionic.airflow -> bionic.olap 'Transform + Load data mart' 'TCP'
+
+    // Получение отчёта пользователем (через существующий API)
+    bionic.api -> bionic.report_service 'Запрос отчёта пользователя' 'REST/HTTPS'
+    bionic.report_service -> bionic.olap 'Чтение витрины отчётности' 'TCP'
+
+    // (Опционально) если API напрямую читает витрину (обычно хуже, чем через report_service)
+    bionic.api -> bionic.olap 'Чтение витрины (не рекомендуется)' 'TCP'
+}
+
+views {
+
+    view of bionic {
+        title 'As-Is'
+
+        include *, buyer, tester, operator, ml_engineer
+
+        exclude * -> * where tag is #task_1
+        exclude element.tag = #task_1
+    }
+
+    view of bionic {
+        title 'Task 1'
+
+        include *, buyer, tester, operator, ml_engineer
+        exclude element.tag = #task_2
+        style element.tag = #task_1  {
+            color ext_new
+            border dashed
+        }
+
+    }
+
+    view of bionic {
+        title 'Task 2'
+
+        include *, buyer, tester, operator, ml_engineer
+        style element.tag = #task_2  {
+            color ext_new
+            border dashed
+        }
+
+    }
+
+}
