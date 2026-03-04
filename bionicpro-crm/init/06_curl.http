@@ -1,0 +1,21 @@
+@connectUrl = http://localhost:8083
+@connectorName = crm-postgres-connector
+
+### Create Debezium connector
+POST {{connectUrl}}/connectors
+Accept: application/json
+Content-Type: application/json
+
+< 05_connector_postgres.json
+
+### Validate Debezium Postgres config
+PUT http://localhost:8083/connector-plugins/io.debezium.connector.postgresql.PostgresConnector/config/validate
+Content-Type: application/json
+
+< 05_config.json
+
+### Check Debezium connector
+GET {{connectUrl}}/connectors/{{connectorName}}/status
+
+### Remove Debezium connector
+DELETE {{connectUrl}}/connectors/{{connectorName}}

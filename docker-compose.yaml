@@ -1,5 +1,9 @@
 version: '3.8'
 
+volumes:
+  redis_data: {}
+  postgres-keycloak-data: {}
+
 services:
   keycloak_db:
     image: postgres:14
@@ -8,9 +12,13 @@ services:
       POSTGRES_USER: keycloak_user
       POSTGRES_PASSWORD: keycloak_password
     volumes:
-      - ./postgres-keycloak-data:/var/lib/postgresql/data
-    ports:
-      - "5433:5432"
+      - postgres-keycloak-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak_user -d keycloak_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   keycloak:
     image: quay.io/keycloak/keycloak:21.1
     environment:
@@ -20,7 +28,11 @@ services:
       KC_DB_URL: jdbc:postgresql://keycloak_db:5432/keycloak_db
       KC_DB_USERNAME: keycloak_user
       KC_DB_PASSWORD: keycloak_password
-    command: 
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: "localhost"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+    command:
       - start-dev
       - --import-realm
     volumes:
@@ -29,6 +41,7 @@ services:
       - "8080:8080"
     depends_on:
       - keycloak_db
+
   frontend:
     build:
       context: ./frontend
@@ -36,7 +49,71 @@ services:
     ports:
       - "3000:3000"
     environment:
-      REACT_APP_API_URL: http://localhost:8000
-      REACT_APP_KEYCLOAK_URL: http://localhost:8080
-      REACT_APP_KEYCLOAK_REALM: reports-realm
-      REACT_APP_KEYCLOAK_CLIENT_ID: reports-frontend
+      REACT_APP_BFF_BASE_URL: http://localhost:8001
+
+  redis:
+    image: redis:7-alpine
+    container_name: bionicpro-redis
+    ports:
+      - "6379:6379"
+    command: [ "redis-server", "--appendonly", "yes" ]
+    volumes:
+      - redis_data:/data
+
+  bionicpro-auth:
+    build: ./bionicpro-auth
+    container_name: bionicpro-auth
+    depends_on:
+      - redis
+      - keycloak
+    ports:
+      - "8001:8001"
+    environment:
+      KEYCLOAK_BASE_URL: "http://keycloak:8080"
+      KEYCLOAK_REALM: "reports-realm"
+      KEYCLOAK_CLIENT_ID: "bionicpro-auth"
+      KEYCLOAK_CLIENT_SECRET: "SlZkHqIfeZ41EG_Bprxoo9iFRLvchjQEt7jijpsFpME="
+      AUTH_REDIRECT_URI: "http://localhost:8001/auth/callback"
+      BIONICPRO_API_BASE_URL: "http://reports-api:8001"
+      REDIS_URL: "redis://redis:6379/0"
+      SESSION_TTL_SECONDS: "3600"
+      AUTH_COOKIE_NAME: "bionicpro_session"
+      AUTH_COOKIE_SECURE: "false"
+      AUTH_COOKIE_SAMESITE: "lax"
+      TOKEN_ENC_KEY: "ltiIiMBeUBQzrigj5EsCxO5WMLssGAEsYgtyRs9DE_w="
+
+  bionicpro-report:
+    build: ./bionicpro-report
+    environment:
+      CH_HOST: clickhouse
+      CH_PORT: "8123"
+      CH_DB: reports
+      CH_USER: default
+      CH_PASSWORD: pass
+      # S3/MinIO
+      S3_BUCKET: "reports"
+      S3_ENDPOINT: "minio:9000"
+      S3_ACCESS_KEY: "minio"
+      S3_SECRET_KEY: "minio12345"
+      S3_SECURE: "0"
+      CDN_BASE_URL: "http://localhost:8003"
+    ports:
+      - "8002:8002"
+
+  openldap:
+    image: bitnami/openldap:2
+    container_name: openldap
+    ports:
+      - "1389:1389"
+      - "1636:1636"
+    environment:
+      - LDAP_ROOT=dc=example,dc=com
+      - LDAP_ADMIN_USERNAME=admin
+      - LDAP_ADMIN_PASSWORD=adminpassword
+      - LDAP_USERS=
+      - LDAP_PASSWORDS=
+      - LDAP_PORT_NUMBER=1389
+      - LDAP_CUSTOM_LDIF_DIR=/ldifs
+      - LDAP_ALLOW_ANON_BINDING=no
+    volumes:
+      - ./ldap/config.ldif:/ldifs/10-config.ldif:ro

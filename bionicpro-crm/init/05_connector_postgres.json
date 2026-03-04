@@ -1,0 +1,23 @@
+{
+  "name": "crm-postgres-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+
+    "database.hostname": "crm-db",
+    "database.port": "5432",
+    "database.user": "debezium",
+    "database.password": "dbz_pass",
+    "database.dbname": "crm",
+
+    "topic.prefix": "crm",
+    "plugin.name": "pgoutput",
+
+    "slot.name": "dbz_slot",
+    "publication.autocreate.mode": "all_tables",
+    "publication.name": "dbz_publication",
+
+    "schema.include.list": "public",
+    "table.include.list": "public.crm_clients,public.crm_client_prosthesis,public.crm_prostheses"
+  }
+}

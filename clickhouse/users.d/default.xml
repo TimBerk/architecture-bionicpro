@@ -1,0 +1,8 @@
+<clickhouse>
+  <users>
+    <default>
+      <password>pass</password>
+      <access_management>1</access_management>
+    </default>
+  </users>
+</clickhouse>
